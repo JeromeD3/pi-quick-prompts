@@ -4,15 +4,14 @@
  * 为什么这么写：
  * - 位置只能用 setWidget(key, ..., { placement: "aboveEditor" })：这是 pi 里唯一能稳定贴在
  *   编辑器上方的挂载点。用自定义组件而不是 string[]，因为点击命中要按列区间判断。
- * - 鼠标只在 `--tui-mode fullscreen` 下可用（regular 模式下终端自己持有鼠标，pi 收不到事件），
- *   所以同一份配置同时注册 Ctrl+1..9，两种模式都能触发，不做模式检测。
  * - 提示词存在 ~/.pi/agent/quick-prompts.json，改词不用改代码；文件不存在时写一份示例。
+ * - 只支持鼠标点击（不注册快捷键）：因此只在 `--tui-mode fullscreen` 下可用。
  * - 组件自己实现 handleMouse，不用 MouseRegion 包一层：MouseRegion 只在子组件没有鼠标处理时才有意义。
  */
 import assert from "node:assert";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Component, KeyId, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
+import type { Component, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 // Theme 由 pi-coding-agent 导出（pi-tui 只导出 EditorTheme 等子类型，没有 Theme 本体）
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
@@ -21,13 +20,8 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 interface QuickPrompt {
 	/** 按钮上显示的文字，建议 2-6 个字，太长会把整行挤掉。 */
 	label: string;
-	/** 点击/按快捷键后作为用户消息发出去的内容。 */
+	/** 点击后作为用户消息发出去的内容。 */
 	text: string;
-	/**
-	 * 可选快捷键，默认按顺序为 ctrl+1、ctrl+2……
-	 * 格式同 pi 的 keybindings：`ctrl+k` / `alt+r` / `ctrl+shift+p` / `f5`。
-	 */
-	key?: string;
 }
 
 /** 一个已渲染按钮占据的列区间（零基，右开），点击时按 x 反查。 */
@@ -37,50 +31,36 @@ interface Chip {
 	index: number;
 }
 
-/** 上限 9 条：`Ctrl+1..9` 兜底快捷键的数量上限，也避免这一行被塞爆。 */
+/** 上限 9 条：一行能放下的数量上限，再多也挤不下。 */
 const MAX_PROMPTS = 9;
 
 const CONFIG_PATH = join(getAgentDir(), "quick-prompts.json");
 
 /** 首次运行的示例，用户直接改这个文件即可；不做配置界面，改 JSON 比改代码快。 */
 const DEFAULT_PROMPTS: QuickPrompt[] = [
-	{ label: "继续", text: "继续", key: "ctrl+1" },
-	{ label: "总结", text: "总结当前进度、已完成的改动和下一步", key: "ctrl+2" },
-	{ label: "查bug", text: "review 你刚才的改动，找 bug、边界问题和回归风险", key: "ctrl+3" },
+	{ label: "继续", text: "继续" },
+	{ label: "总结", text: "总结当前进度、已完成的改动和下一步" },
+	{ label: "查bug", text: "review 你刚才的改动，找 bug、边界问题和回归风险" },
 ];
 
 function loadPrompts(): QuickPrompt[] {
-	const normalize = (list: QuickPrompt[]): QuickPrompt[] =>
-		list.slice(0, MAX_PROMPTS).map((p, i) => ({
-			label: p.label,
-			text: p.text,
-			// 快捷键在这里补默认值，下游（渲染/注册）就不用再兜 undefined
-			key: typeof p.key === "string" && p.key.length > 0 ? p.key : `ctrl+${i + 1}`,
-		}));
-
 	if (!existsSync(CONFIG_PATH)) {
 		writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_PROMPTS, null, 2), "utf8");
-		return normalize(DEFAULT_PROMPTS);
+		return DEFAULT_PROMPTS.slice(0, MAX_PROMPTS);
 	}
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
 		if (!Array.isArray(parsed)) return [];
-		return normalize(
-			parsed.filter((p): p is QuickPrompt => {
+		return parsed
+			.filter((p): p is QuickPrompt => {
 				const o = p as Partial<QuickPrompt> | null;
 				return !!o && typeof o.label === "string" && typeof o.text === "string";
-			}),
-		);
+			})
+			.slice(0, MAX_PROMPTS);
 	} catch {
 		// 配置写坏了就当成空，静默降级：不能因为一个提示词文件让整个会话起不来
 		return [];
 	}
-}
-
-/** 按钮上的短标签：ctr+1 显示 "1"，alt+r 显示 "R"（终端里按钮宽度有限）。 */
-function keyLabel(key: string): string {
-	const main = key.split("+").pop() ?? key;
-	return main.length === 1 ? main.toUpperCase() : main;
 }
 
 /** 命中判定抽成纯函数，便于自检。间隔处（返回 undefined）不可点。 */
@@ -108,7 +88,7 @@ class PromptBar implements Component {
 		for (let i = 0; i < this.prompts.length; i++) {
 			const prompt = this.prompts[i];
 			if (!prompt) continue;
-			const chipText = ` ${keyLabel(prompt.key)} ${prompt.label} `;
+			const chipText = ` ${prompt.label} `;
 			const chipWidth = visibleWidth(chipText);
 			const lead = i === 0 ? 0 : 1;
 			if (col + lead + chipWidth > width) break;
@@ -179,27 +159,6 @@ export default function quickPrompts(pi: ExtensionAPI) {
 			placement: "aboveEditor",
 		});
 	});
-
-	// 键盘兜底：regular 模式收不到鼠标事件，快捷键是同一动作的另一入口。
-	// 注意：扩展注册的键不经过 keybindings.json，冲突时 pi 只在控制台 warn，故这里自己去重。
-	const taken = new Set<string>();
-	prompts.forEach((prompt, index) => {
-		const key = prompt.key.toLowerCase();
-		if (taken.has(key)) {
-			console.warn(`[quick-prompts] 快捷键 ${key} 已被占用，跳过「${prompt.label}」`);
-			return;
-		}
-		taken.add(key);
-		try {
-			pi.registerShortcut(key as KeyId, {
-				description: `发送常用提示词「${prompt.label}」`,
-				handler: () => pick(index),
-			});
-		} catch (err) {
-			// 键名写错不能让整个扩展加载失败，按钮仍可用
-			console.warn(`[quick-prompts] 快捷键 ${key} 无效：${err instanceof Error ? err.message : String(err)}`);
-		}
-	});
 }
 
 // 自检：npm run check（Node ≥ 24，依赖 import.meta.main 与原生 TS 类型擦除）
@@ -226,8 +185,8 @@ if ((import.meta as { main?: boolean }).main) {
 	const picks: number[] = [];
 	const bar = new PromptBar(
 		[
-			{ label: "a", text: "A", key: "ctrl+1" },
-			{ label: "b", text: "B", key: "ctrl+2" },
+			{ label: "a", text: "A" },
+			{ label: "b", text: "B" },
 		],
 		stubTheme,
 		(i) => picks.push(i),
@@ -259,11 +218,5 @@ if ((import.meta as { main?: boolean }).main) {
 	// 放不下的按钮既不渲染也不可点
 	bar.render(6);
 	assert.equal(bar.handleMouse(mouse("click", 5)), undefined);
-
-	// 按钮上的编号来自 key，而不是数组下标（改了键要跟着变）
-	assert.equal(keyLabel("ctrl+1"), "1");
-	assert.equal(keyLabel("alt+r"), "R");
-	assert.equal(keyLabel("ctrl+shift+p"), "P");
-	assert.equal(keyLabel("f5"), "f5");
 	console.log("quick-prompts self-check ok");
 }
