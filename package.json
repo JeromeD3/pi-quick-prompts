@@ -1,0 +1,24 @@
+{
+  "name": "pi-quick-prompts",
+  "version": "0.1.0",
+  "description": "Clickable quick-prompt buttons above the pi editor — hover to highlight, click to send.",
+  "keywords": ["pi-package", "pi-extension", "prompts"],
+  "license": "MIT",
+  "author": "JeromeD3",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JeromeD3/pi-quick-prompts.git"
+  },
+  "type": "module",
+  "files": ["extensions", "README.md", "LICENSE"],
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "scripts": {
+    "check": "node --experimental-transform-types extensions/quick-prompts.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
