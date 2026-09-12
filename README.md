@@ -26,7 +26,7 @@ pi install git:github.com/JeromeD3/pi-quick-prompts
 | 操作 | 效果 |
 | --- | --- |
 | 鼠标点击按钮 | 直接把该提示词作为用户消息发送 |
-| 鼠标悬停 | 按钮反白高亮 |
+| 鼠标悬停 | 按钮底色变成主题 accent 色（普通态是淡灰底） |
 
 只支持鼠标（不注册快捷键）。agent 正在输出时点击，消息会以 `deliverAs: "followUp"` 排队到本轮结束，不会丢。
 

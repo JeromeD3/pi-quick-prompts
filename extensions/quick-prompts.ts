@@ -94,8 +94,11 @@ class PromptBar implements Component {
 			if (col + lead + chipWidth > width) break;
 			col += lead;
 			chips.push({ start: col, end: col + chipWidth, index: i });
-			// 按钮样式：平时淡背景，hover 反白 —— 反色块比改文字更接近“按钮”
-			const style = i === this.hoverIndex ? this.theme.inverse(this.theme.bold(chipText)) : this.theme.bg("selectedBg", this.theme.fg("accent", chipText));
+			// 按钮样式：平时淡灰底 + accent 字，hover 换成 accent 底色（inverse 把 accent 前景翻成背景，比固定取色更贴主题）
+			const style =
+				i === this.hoverIndex
+					? this.theme.inverse(this.theme.bold(this.theme.fg("accent", chipText)))
+					: this.theme.bg("selectedBg", this.theme.fg("accent", chipText));
 			line.push((i === 0 ? "" : " ") + style);
 			col += chipWidth;
 		}
