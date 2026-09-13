@@ -1,5 +1,5 @@
 /**
- * Quick Prompts —— 输入框上方常驻一行「常用提示词」，悬停高亮、点一下直接发送。
+ * Quick Prompts —— 输入框上方常驻一行「常用提示词」，悬停高亮、点一下填进输入框（不发送）。
  *
  * 为什么这么写：
  * - 位置只能用 setWidget(key, ..., { placement: "aboveEditor" })：这是 pi 里唯一能稳定贴在
@@ -141,16 +141,15 @@ export default function quickPrompts(pi: ExtensionAPI) {
 
 	const pick = (index: number) => {
 		const prompt = prompts[index];
-		if (!prompt) return;
+		if (!prompt || !ctx?.hasUI) return;
 		try {
-			pi.sendUserMessage(prompt.text);
+			// 只填进输入框、不直接发送：用户通常要在基础 prompt 上再补一句（点「继续」后补方向、
+			// 点「os日志」后补日期）才发，直接发送把这个最常见的用法堵死了。
+			// 已有内容时追加而非替换 —— 不能静默吃掉用户已经打了一半的字。
+			const existing = ctx.ui.getEditorText().replace(/\s+$/, "");
+			ctx.ui.setEditorText(existing ? `${existing}\n${prompt.text}` : prompt.text);
 		} catch (err) {
-			// 正在 streaming 时 sendUserMessage 必须声明投递方式，排队到本轮工具跑完
-			try {
-				pi.sendUserMessage(prompt.text, { deliverAs: "followUp" });
-			} catch {
-				ctx?.ui.notify(`发送失败：${err instanceof Error ? err.message : String(err)}`, "error");
-			}
+			ctx.ui.notify(`填入输入框失败：${err instanceof Error ? err.message : String(err)}`, "error");
 		}
 	};
 
